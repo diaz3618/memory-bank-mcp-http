@@ -1,0 +1,864 @@
+/**
+ * GraphStore - Main knowledge graph storage manager
+ *
+ * Manages the append-only event log and snapshot lifecycle.
+ * Uses the FileSystemInterface for IO operations.
+ *
+ * Key responsibilities:
+ * - Initialize graph storage
+ * - Append events to JSONL
+ * - Maintain snapshot consistency
+ * - Generate Markdown representation
+ */
+
+import type { FileSystemInterface } from '../../utils/storage/FileSystemInterface.js';
+import type {
+  Entity,
+  EntityId,
+  GraphEvent,
+  GraphIndex,
+  GraphSnapshot,
+  GraphStats,
+  Observation,
+  Relation,
+  DataEvent,
+  EntityInput,
+  ObservationInput,
+  RelationInput,
+  GraphOperationResult,
+} from '../../types/graph.js';
+import {
+  GRAPH_PATHS as GP,
+  MARKER_EVENT as ME,
+} from '../../types/graph.js';
+import {
+  createEntityId,
+  createObservationId,
+  createRelationId,
+  normalizeName,
+} from './GraphIds.js';
+import {
+  isMarkerEvent,
+  validateEntityInput,
+  validateObservationInput,
+  validateRelationInput,
+} from './GraphSchemas.js';
+import {
+  calculateStats,
+  reduceJsonlToSnapshot,
+  getEventLineCount,
+} from './GraphReducer.js';
+import {
+  findEntity,
+} from './GraphSearch.js';
+import { renderGraphToMarkdown } from './GraphRenderer.js';
+import { ETagUtils } from '../../utils/ETagUtils.js';
+import { LogManager } from '../../utils/LogManager.js';
+
+const logger = LogManager.getInstance();
+
+// ============================================================================
+// GraphStore Class
+// ============================================================================
+
+export class GraphStore {
+  private readonly fs: FileSystemInterface;
+  private readonly storeRoot: string;
+  private readonly storeId: string;
+
+  // In-memory cache for performance
+  private cachedSnapshot: GraphSnapshot | null = null;
+  private cachedIndex: GraphIndex | null = null;
+  private lastJsonlEtag: string | null = null;
+
+  // Async write queue to prevent concurrent write race conditions
+  private writeQueue: Promise<void> = Promise.resolve();
+
+  // Cached marker validation: once the marker is verified during
+  // initialize() or the first append, skip re-reading the whole file
+  // on subsequent appends.
+  private markerVerified = false;
+
+  constructor(fs: FileSystemInterface, storeRoot: string, storeId: string = 'default') {
+    this.fs = fs;
+    this.storeRoot = storeRoot;
+    this.storeId = storeId;
+  }
+
+  /**
+   * Serializes write operations to prevent race conditions.
+   * All operations that read-modify-write must go through this lock.
+   */
+  private async withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    let releaseLock!: () => void;
+    const nextSlot = new Promise<void>(resolve => { releaseLock = resolve; });
+    const previousSlot = this.writeQueue;
+    this.writeQueue = nextSlot;
+    await previousSlot;
+    try {
+      return await fn();
+    } finally {
+      releaseLock();
+    }
+  }
+
+  // ==========================================================================
+  // Path Helpers
+  // ==========================================================================
+
+  private get graphDir(): string {
+    return this.storeRoot ? `${this.storeRoot}/${GP.DIR}` : GP.DIR;
+  }
+
+  private get jsonlPath(): string {
+    return this.storeRoot ? `${this.storeRoot}/${GP.JSONL}` : GP.JSONL;
+  }
+
+  private get snapshotPath(): string {
+    return this.storeRoot ? `${this.storeRoot}/${GP.SNAPSHOT}` : GP.SNAPSHOT;
+  }
+
+  private get markdownPath(): string {
+    return this.storeRoot ? `${this.storeRoot}/${GP.MARKDOWN}` : GP.MARKDOWN;
+  }
+
+  private get indexPath(): string {
+    return this.storeRoot ? `${this.storeRoot}/${GP.INDEX}` : GP.INDEX;
+  }
+
+  // ==========================================================================
+  // Initialization
+  // ==========================================================================
+
+  /**
+   * Initializes the graph storage
+   * Creates necessary directories and files with marker
+   */
+  async initialize(): Promise<GraphOperationResult<void>> {
+    try {
+      // Ensure graph directory exists
+      const dirExists = await this.fs.fileExists(this.graphDir);
+      if (!dirExists) {
+        await this.fs.ensureDirectory(this.graphDir);
+        logger.info('GraphStore', `Created graph directory at ${this.graphDir}`);
+      }
+
+      // Check if JSONL exists
+      const jsonlExists = await this.fs.fileExists(this.jsonlPath);
+      if (!jsonlExists) {
+        // Create with marker line
+        const markerLine = JSON.stringify(ME) + '\n';
+        await this.fs.writeFile(this.jsonlPath, markerLine);
+        this.markerVerified = true;
+        logger.info('GraphStore', `Created graph.jsonl with marker at ${this.jsonlPath}`);
+      } else {
+        // Validate existing marker
+        const validation = await this.validateMarker();
+        if (!validation.success) {
+          return validation;
+        }
+        this.markerVerified = true;
+      }
+
+      // Build initial snapshot if needed
+      const snapshotExists = await this.fs.fileExists(this.snapshotPath);
+      if (!snapshotExists) {
+        await this.rebuildSnapshotInternal();
+      }
+
+      return { success: true, data: undefined };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('GraphStore', `Initialization failed: ${message}`);
+      return { success: false, error: message, code: 'IO_ERROR' };
+    }
+  }
+
+  /**
+   * Validates the marker in the JSONL file
+   */
+  async validateMarker(): Promise<GraphOperationResult<void>> {
+    try {
+      const content = await this.fs.readFile(this.jsonlPath);
+      const firstLine = content.split('\n')[0];
+
+      if (!firstLine) {
+        return { success: false, error: 'JSONL file is empty', code: 'MARKER_MISMATCH' };
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(firstLine);
+      } catch {
+        return { success: false, error: 'JSONL file first line is not valid JSON', code: 'MARKER_MISMATCH' };
+      }
+
+      if (!isMarkerEvent(parsed)) {
+        return {
+          success: false,
+          error: `Invalid marker: expected ${JSON.stringify(ME)}, got ${JSON.stringify(parsed)}`,
+          code: 'MARKER_MISMATCH',
+        };
+      }
+
+      return { success: true, data: undefined };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Failed to validate marker: ${message}`, code: 'IO_ERROR' };
+    }
+  }
+
+  /**
+   * Checks if the graph has been initialized
+   */
+  async isInitialized(): Promise<boolean> {
+    try {
+      const jsonlExists = await this.fs.fileExists(this.jsonlPath);
+      if (!jsonlExists) return false;
+
+      const validation = await this.validateMarker();
+      return validation.success;
+    } catch {
+      return false;
+    }
+  }
+
+  // ==========================================================================
+  // Event Appending
+  // ==========================================================================
+
+  /**
+   * Appends an event to the JSONL file
+   * Uses filesystem append (O_APPEND) instead of read-modify-write.
+   * Serialized via writeQueue to prevent concurrent-append race conditions.
+   */
+  private async appendEvent(event: DataEvent): Promise<GraphOperationResult<void>> {
+    return this.withWriteLock(async () => {
+      try {
+        // Validate marker once — after that, trust it hasn't been tampered with
+        if (!this.markerVerified) {
+          const currentContent = await this.fs.readFile(this.jsonlPath);
+          const firstLine = currentContent.split('\n')[0];
+          let markerValid = false;
+          try {
+            markerValid = !!firstLine && isMarkerEvent(JSON.parse(firstLine));
+          } catch {
+            // JSON.parse failed — marker is corrupted
+          }
+          if (!markerValid) {
+            return { success: false, error: 'JSONL file marker missing or invalid', code: 'MARKER_MISMATCH' as const };
+          }
+          this.markerVerified = true;
+        }
+
+        // Append only the new event line — no read-modify-write
+        const eventLine = JSON.stringify(event) + '\n';
+        await this.fs.appendFile(this.jsonlPath, eventLine);
+
+        // Invalidate cache
+        this.cachedSnapshot = null;
+        this.cachedIndex = null;
+
+        return { success: true, data: undefined };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('GraphStore', `Failed to append event: ${message}`);
+        return { success: false, error: message, code: 'IO_ERROR' as const };
+      }
+    });
+  }
+
+  // ==========================================================================
+  // Entity Operations
+  // ==========================================================================
+
+  /**
+   * Upserts an entity (create or update)
+   */
+  async upsertEntity(input: EntityInput): Promise<GraphOperationResult<Entity>> {
+    const validation = validateEntityInput(input);
+    if (!validation.valid) {
+      return { success: false, error: validation.error, code: 'INVALID_INPUT' };
+    }
+
+    const { name, entityType, attrs } = validation;
+    const now = new Date().toISOString();
+    const id = createEntityId(name, entityType);
+
+    // Check if entity exists
+    const snapshot = await this.getSnapshot();
+    if (!snapshot.success) {
+      return snapshot;
+    }
+
+    const existing = snapshot.data.entities.find((e: Entity) => e.id === id);
+
+    const entity: Entity = {
+      id,
+      name,
+      entityType,
+      attrs,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+
+    const event: DataEvent = {
+      type: 'entity_upsert',
+      entity,
+      ts: now,
+    };
+
+    const appendResult = await this.appendEvent(event);
+    if (!appendResult.success) {
+      return appendResult;
+    }
+
+    logger.info('GraphStore', `Upserted entity: ${name} [${entityType}]`);
+    return { success: true, data: entity };
+  }
+
+  /**
+   * Deletes an entity and its associated observations and relations
+   */
+  async deleteEntity(nameOrId: string): Promise<GraphOperationResult<void>> {
+    const snapshot = await this.getSnapshot();
+    if (!snapshot.success) {
+      return snapshot;
+    }
+
+    const entity = findEntity(snapshot.data, nameOrId);
+    if (!entity) {
+      return { success: false, error: `Entity not found: ${nameOrId}`, code: 'ENTITY_NOT_FOUND' };
+    }
+
+    const now = new Date().toISOString();
+    const event: DataEvent = {
+      type: 'entity_delete',
+      entityId: entity.id,
+      ts: now,
+    };
+
+    const appendResult = await this.appendEvent(event);
+    if (!appendResult.success) {
+      return appendResult;
+    }
+
+    logger.info('GraphStore', `Deleted entity: ${entity.name}`);
+    return { success: true, data: undefined };
+  }
+
+  // ==========================================================================
+  // Observation Operations
+  // ==========================================================================
+
+  /**
+   * Adds an observation to an entity
+   */
+  async addObservation(input: ObservationInput): Promise<GraphOperationResult<Observation>> {
+    const validation = validateObservationInput(input);
+    if (!validation.valid) {
+      return { success: false, error: validation.error, code: 'INVALID_INPUT' };
+    }
+
+    const { entityRef, text, source, timestamp } = validation;
+    const ts = timestamp ?? new Date().toISOString();
+
+    // Find the entity
+    const snapshot = await this.getSnapshot();
+    if (!snapshot.success) {
+      return snapshot;
+    }
+
+    const entity = findEntity(snapshot.data, entityRef);
+    if (!entity) {
+      return { success: false, error: `Entity not found: ${entityRef}`, code: 'ENTITY_NOT_FOUND' };
+    }
+
+    const id = createObservationId(entity.id, text, ts);
+
+    const observation: Observation = {
+      id,
+      entityId: entity.id,
+      text,
+      source,
+      timestamp: ts,
+    };
+
+    const event: DataEvent = {
+      type: 'observation_add',
+      observation,
+      ts,
+    };
+
+    const appendResult = await this.appendEvent(event);
+    if (!appendResult.success) {
+      return appendResult;
+    }
+
+    logger.info('GraphStore', `Added observation to ${entity.name}`);
+    return { success: true, data: observation };
+  }
+
+  /**
+   * Deletes a specific observation by ID
+   */
+  async deleteObservation(observationId: string): Promise<GraphOperationResult<void>> {
+    const snapshot = await this.getSnapshot();
+    if (!snapshot.success) {
+      return snapshot;
+    }
+
+    // Find the observation
+    const observation = snapshot.data.observations.find(
+      (o: Observation) => o.id === observationId
+    );
+    if (!observation) {
+      return { success: false, error: `Observation not found: ${observationId}`, code: 'ENTITY_NOT_FOUND' };
+    }
+
+    const now = new Date().toISOString();
+    const event: DataEvent = {
+      type: 'observation_delete',
+      entityId: observation.entityId,
+      observationId: observation.id,
+      ts: now,
+    };
+
+    const appendResult = await this.appendEvent(event);
+    if (!appendResult.success) {
+      return appendResult;
+    }
+
+    logger.info('GraphStore', `Deleted observation ${observationId}`);
+    return { success: true, data: undefined };
+  }
+
+  // ==========================================================================
+  // Relation Operations
+  // ==========================================================================
+
+  /**
+   * Links two entities with a relation
+   * Idempotent - same link won't create duplicates
+   */
+  async linkEntities(input: RelationInput): Promise<GraphOperationResult<Relation>> {
+    const validation = validateRelationInput(input);
+    if (!validation.valid) {
+      return { success: false, error: validation.error, code: 'INVALID_INPUT' };
+    }
+
+    const { from, relationType, to } = validation;
+    const now = new Date().toISOString();
+
+    // Find both entities
+    const snapshot = await this.getSnapshot();
+    if (!snapshot.success) {
+      return snapshot;
+    }
+
+    const fromEntity = findEntity(snapshot.data, from);
+    if (!fromEntity) {
+      return { success: false, error: `Entity not found: ${from}`, code: 'ENTITY_NOT_FOUND' };
+    }
+
+    const toEntity = findEntity(snapshot.data, to);
+    if (!toEntity) {
+      return { success: false, error: `Entity not found: ${to}`, code: 'ENTITY_NOT_FOUND' };
+    }
+
+    const id = createRelationId(fromEntity.id, toEntity.id, relationType);
+
+    // Check if relation already exists (idempotent)
+    const existingRelation = snapshot.data.relations.find((r: Relation) => r.id === id);
+    if (existingRelation) {
+      return { success: true, data: existingRelation };
+    }
+
+    const relation: Relation = {
+      id,
+      fromId: fromEntity.id,
+      toId: toEntity.id,
+      relationType,
+      createdAt: now,
+    };
+
+    const event: DataEvent = {
+      type: 'relation_add',
+      relation,
+      ts: now,
+    };
+
+    const appendResult = await this.appendEvent(event);
+    if (!appendResult.success) {
+      return appendResult;
+    }
+
+    logger.info('GraphStore', `Linked ${fromEntity.name} --${relationType}--> ${toEntity.name}`);
+    return { success: true, data: relation };
+  }
+
+  /**
+   * Removes a relation between two entities
+   */
+  async unlinkEntities(
+    from: string,
+    relationType: string,
+    to: string
+  ): Promise<GraphOperationResult<void>> {
+    const snapshot = await this.getSnapshot();
+    if (!snapshot.success) {
+      return snapshot;
+    }
+
+    const fromEntity = findEntity(snapshot.data, from);
+    if (!fromEntity) {
+      return { success: false, error: `Entity not found: ${from}`, code: 'ENTITY_NOT_FOUND' };
+    }
+
+    const toEntity = findEntity(snapshot.data, to);
+    if (!toEntity) {
+      return { success: false, error: `Entity not found: ${to}`, code: 'ENTITY_NOT_FOUND' };
+    }
+
+    const relationId = createRelationId(fromEntity.id, toEntity.id, relationType);
+
+    // Check if relation exists
+    const existingRelation = snapshot.data.relations.find((r: Relation) => r.id === relationId);
+    if (!existingRelation) {
+      return { success: true, data: undefined }; // Idempotent - no-op if doesn't exist
+    }
+
+    const now = new Date().toISOString();
+    const event: DataEvent = {
+      type: 'relation_remove',
+      fromId: fromEntity.id,
+      toId: toEntity.id,
+      relationType,
+      ts: now,
+    };
+
+    const appendResult = await this.appendEvent(event);
+    if (!appendResult.success) {
+      return appendResult;
+    }
+
+    logger.info('GraphStore', `Unlinked ${fromEntity.name} --${relationType}--> ${toEntity.name}`);
+    return { success: true, data: undefined };
+  }
+
+  // ==========================================================================
+  // Snapshot Operations
+  // ==========================================================================
+
+  /**
+   * Gets the current snapshot, rebuilding if necessary.
+   * Acquires the write lock when a rebuild is needed to prevent
+   * concurrent snapshot writes from racing.
+   */
+  async getSnapshot(): Promise<GraphOperationResult<GraphSnapshot>> {
+    try {
+      // Fast path: cached and no changes (no lock needed)
+      // Capture reference before await to prevent TOCTOU race:
+      // a concurrent appendEvent() can set this.cachedSnapshot = null
+      // between the truthy check and the return statement.
+      const cached = this.cachedSnapshot;
+      if (cached && !(await this.checkNeedsRebuild())) {
+        return { success: true, data: cached };
+      }
+
+      // Cold start optimization: try loading from disk (read-only, no lock)
+      if (!this.cachedSnapshot) {
+        const loaded = await this.tryLoadCachedSnapshot();
+        if (loaded) {
+          return { success: true, data: loaded };
+        }
+      }
+
+      // Full rebuild required — serialize through write lock to prevent
+      // concurrent snapshot file writes from racing
+      return this.withWriteLock(async () => {
+        // Double-check: another queued operation may have rebuilt while we waited
+        if (this.cachedSnapshot && !(await this.checkNeedsRebuild())) {
+          return { success: true, data: this.cachedSnapshot } as GraphOperationResult<GraphSnapshot>;
+        }
+        const result = await this.rebuildSnapshotInternal();
+        if (!result.success) {
+          return result;
+        }
+        return { success: true, data: this.cachedSnapshot! } as GraphOperationResult<GraphSnapshot>;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message, code: 'IO_ERROR' };
+    }
+  }
+
+  /**
+   * Tries to load snapshot from disk using index for staleness check.
+   * Returns the snapshot if it's still valid, null otherwise.
+   */
+  private async tryLoadCachedSnapshot(): Promise<GraphSnapshot | null> {
+    try {
+      const [indexExists, snapshotExists] = await Promise.all([
+        this.fs.fileExists(this.indexPath),
+        this.fs.fileExists(this.snapshotPath),
+      ]);
+      if (!indexExists || !snapshotExists) return null;
+
+      const [indexContent, jsonlContent] = await Promise.all([
+        this.fs.readFile(this.indexPath),
+        this.fs.readFile(this.jsonlPath),
+      ]);
+
+      let index: GraphIndex;
+      try {
+        index = JSON.parse(indexContent) as GraphIndex;
+      } catch {
+        return null;
+      }
+
+      // Compare event line count — if JSONL has grown, index is stale
+      const currentLineCount = getEventLineCount(jsonlContent);
+      if (index.lastEventLineCount !== currentLineCount) {
+        return null;
+      }
+
+      // Index is fresh — load snapshot from disk
+      const snapshotContent = await this.fs.readFile(this.snapshotPath);
+      const snapshot = JSON.parse(snapshotContent) as GraphSnapshot;
+
+      // Populate caches
+      this.cachedSnapshot = snapshot;
+      this.cachedIndex = index;
+      this.lastJsonlEtag = ETagUtils.calculateETag(jsonlContent);
+
+      logger.info('GraphStore', 'Loaded snapshot from disk (index indicated fresh)');
+      return snapshot;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Checks if snapshot needs rebuilding
+   */
+  private async checkNeedsRebuild(): Promise<boolean> {
+    try {
+      if (!this.cachedSnapshot) return true;
+
+      // Check if JSONL has changed
+      const jsonlContent = await this.fs.readFile(this.jsonlPath);
+      const currentEtag = ETagUtils.calculateETag(jsonlContent);
+
+      if (this.lastJsonlEtag !== currentEtag) {
+        return true;
+      }
+
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Rebuilds the snapshot from JSONL (public, lock-safe).
+   * Acquires the write lock to prevent concurrent file writes.
+   */
+  async rebuildSnapshot(): Promise<GraphOperationResult<GraphSnapshot>> {
+    return this.withWriteLock(() => this.rebuildSnapshotInternal());
+  }
+
+  /**
+   * Internal rebuild — MUST be called within withWriteLock or during init.
+   */
+  private async rebuildSnapshotInternal(): Promise<GraphOperationResult<GraphSnapshot>> {
+    try {
+      const jsonlContent = await this.fs.readFile(this.jsonlPath);
+      const result = reduceJsonlToSnapshot(jsonlContent, this.storeId);
+
+      if (!result.success) {
+        return { success: false, error: result.error, code: 'VALIDATION_ERROR' };
+      }
+
+      this.cachedSnapshot = result.snapshot;
+      this.lastJsonlEtag = ETagUtils.calculateETag(jsonlContent);
+
+      // Write snapshot file
+      await this.fs.writeFile(this.snapshotPath, JSON.stringify(result.snapshot, null, 2));
+
+      // Update Markdown view
+      const markdown = renderGraphToMarkdown(result.snapshot);
+      await this.fs.writeFile(this.markdownPath, markdown);
+
+      // Update index
+      const lineCount = getEventLineCount(jsonlContent);
+      const stats = calculateStats(result.snapshot);
+      const nameToEntityId: Record<string, string> = {};
+      for (const entity of result.snapshot.entities) {
+        nameToEntityId[normalizeName(entity.name)] = entity.id;
+      }
+
+      const index: GraphIndex = {
+        lastEventLineCount: lineCount,
+        snapshotBuiltAt: new Date().toISOString(),
+        jsonlModifiedAt: new Date().toISOString(),
+        stats,
+        nameToEntityId: nameToEntityId as Record<string, EntityId>,
+      };
+      this.cachedIndex = index;
+      await this.fs.writeFile(this.indexPath, JSON.stringify(index, null, 2));
+
+      logger.info('GraphStore', `Rebuilt snapshot: ${stats.entityCount} entities, ${stats.relationCount} relations`);
+      return { success: true, data: result.snapshot };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('GraphStore', `Failed to rebuild snapshot: ${message}`);
+      return { success: false, error: message, code: 'IO_ERROR' };
+    }
+  }
+
+  // ==========================================================================
+  // Compaction
+  // ==========================================================================
+
+  /**
+   * Compacts the JSONL event log by replacing it with a minimal representation:
+   *   marker + one upsert per entity + one add per observation + one add per relation
+   *   + a snapshot_written sentinel.
+   *
+   * This reduces log size without losing current state.
+   */
+  async compact(): Promise<GraphOperationResult<{ before: number; after: number }>> {
+    return this.withWriteLock(async () => {
+      try {
+      // Ensure we have a fresh snapshot
+      const snapshotResult = await this.rebuildSnapshotInternal();
+      if (!snapshotResult.success) {
+        return snapshotResult;
+      }
+      const snapshot = snapshotResult.data;
+      const stats = calculateStats(snapshot);
+
+      // Read current line count for the "before" metric
+      const oldContent = await this.fs.readFile(this.jsonlPath);
+      const beforeLines = getEventLineCount(oldContent);
+
+      // Build compacted JSONL
+      const lines: string[] = [];
+
+      // Marker
+      lines.push(JSON.stringify(ME));
+
+      const now = new Date().toISOString();
+
+      // Re-emit each entity as an upsert
+      for (const entity of snapshot.entities) {
+        const event: DataEvent = { type: 'entity_upsert', entity, ts: now };
+        lines.push(JSON.stringify(event));
+      }
+
+      // Re-emit each observation as an add
+      for (const obs of snapshot.observations) {
+        const event: DataEvent = { type: 'observation_add', observation: obs, ts: now };
+        lines.push(JSON.stringify(event));
+      }
+
+      // Re-emit each relation as an add
+      for (const rel of snapshot.relations) {
+        const event: DataEvent = { type: 'relation_add', relation: rel, ts: now };
+        lines.push(JSON.stringify(event));
+      }
+
+      // Sentinel
+      const sentinel: GraphEvent = {
+        type: 'snapshot_written',
+        snapshotPath: this.snapshotPath,
+        stats,
+        ts: now,
+      };
+      lines.push(JSON.stringify(sentinel));
+
+      // Atomic write — replace the JSONL
+      const compactedContent = lines.join('\n') + '\n';
+      await this.fs.writeFile(this.jsonlPath, compactedContent);
+
+      // Invalidate caches so next getSnapshot() reads the compacted file
+      this.cachedSnapshot = null;
+      this.cachedIndex = null;
+      this.lastJsonlEtag = null;
+
+      // Rebuild index to match the new file
+      await this.rebuildSnapshotInternal();
+
+      const afterLines = getEventLineCount(compactedContent);
+      logger.info('GraphStore', `Compacted JSONL: ${beforeLines} → ${afterLines} lines`);
+
+      return { success: true, data: { before: beforeLines, after: afterLines } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('GraphStore', `Compaction failed: ${message}`);
+        return { success: false, error: message, code: 'IO_ERROR' };
+      }
+    });
+  }
+
+  // ==========================================================================
+  // Utility Methods
+  // ==========================================================================
+
+  /**
+   * Gets graph statistics
+   */
+  async getStats(): Promise<GraphOperationResult<GraphStats>> {
+    const snapshot = await this.getSnapshot();
+    if (!snapshot.success) {
+      return snapshot;
+    }
+    return { success: true, data: calculateStats(snapshot.data) };
+  }
+
+  /**
+   * Gets the Markdown representation
+   */
+  async getMarkdown(): Promise<GraphOperationResult<string>> {
+    try {
+      const exists = await this.fs.fileExists(this.markdownPath);
+      if (!exists) {
+        // Rebuild to generate it
+        const result = await this.rebuildSnapshot();
+        if (!result.success) {
+          return result;
+        }
+      }
+      const content = await this.fs.readFile(this.markdownPath);
+      return { success: true, data: content };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message, code: 'IO_ERROR' };
+    }
+  }
+
+  /**
+   * Clears the in-memory cache
+   */
+  clearCache(): void {
+    this.cachedSnapshot = null;
+    this.cachedIndex = null;
+    this.lastJsonlEtag = null;
+  }
+}
+
+// ============================================================================
+// Factory Function
+// ============================================================================
+
+/**
+ * Creates a GraphStore instance for a memory bank
+ */
+export function createGraphStore(
+  fs: FileSystemInterface,
+  memoryBankRoot: string,
+  storeId: string = 'default'
+): GraphStore {
+  return new GraphStore(fs, memoryBankRoot, storeId);
+}

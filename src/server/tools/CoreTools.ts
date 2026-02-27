@@ -223,15 +223,6 @@ export const coreTools = [
     },
   },
   {
-    name: 'list_backups',
-    description: '(DEPRECATED: use create_backup with listOnly:true) List all available Memory Bank backups. Returns backup IDs sorted by timestamp (newest first).',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      additionalProperties: false,
-    },
-  },
-  {
     name: 'restore_backup',
     description: 'Restore the Memory Bank from a specified backup. By default, creates a backup of the current state before restoring.',
     inputSchema: {
@@ -239,7 +230,7 @@ export const coreTools = [
       properties: {
         backupId: {
           type: 'string',
-          description: 'The backup ID (folder name) to restore from. Use list_backups to see available backups.',
+          description: 'The backup ID (folder name) to restore from. Use create_backup with listOnly:true to see available backups.',
         },
         createPreRestoreBackup: {
           type: 'boolean',
@@ -448,7 +439,7 @@ These files live in the \`memory-bank/\` directory:
 | \`get_memory_bank_status\` | Status of the Memory Bank (initialized, path, file list) |
 | \`list_memory_bank_files\` | List all files in the Memory Bank directory |
 | \`search_memory_bank\` | Full-text search across all Memory Bank files |
-| \`get_current_mode\` | Current active mode and its guidelines |
+| \`switch_mode\` | Switch modes or get current mode (call with no params for current mode) |
 
 ### 3. File Operations
 | Tool | Purpose |
@@ -477,20 +468,14 @@ These files live in the \`memory-bank/\` directory:
 | \`graph_upsert_entity\` | Create or update an entity |
 | \`graph_add_observation\` | Add an observation to an entity |
 | \`graph_add_doc_pointer\` | Link an entity to a Memory Bank file + optional heading |
-| \`graph_link_entities\` | Create a typed relationship between entities |
-| \`graph_unlink_entities\` | Remove a relationship between entities |
-| \`graph_delete_entity\` | Delete an entity |
-| \`graph_delete_observation\` | Delete an observation |
-| \`graph_rebuild\` | Rebuild the graph index |
-| \`graph_compact\` | Compact the graph storage file |
+| \`graph_link_entities\` | Create or remove a typed relationship (use action: "link" or "unlink") |
+| \`graph_delete_entity\` | Delete an entity or observation (use observationId param for observation) |
+| \`graph_maintain\` | Maintain graph (rebuild snapshot, compact log, or get stats) |
 
 ### 6. Modes
 | Tool | Purpose |
 |------|---------|
-| \`switch_mode\` | Switch to a mode: architect, code, ask, debug, or test |
-| \`get_current_mode\` | Get the current mode and its behavioral guidelines |
-| \`process_umb_command\` | Process an Update Memory Bank (UMB) command |
-| \`complete_umb\` | Complete the UMB process |
+| \`switch_mode\` | Switch modes (architect/code/ask/debug/test) or get current mode (no params). Supports UMB workflow via \`umb:true\` param |
 
 ### 7. Setup & Administration
 | Tool | Purpose |
@@ -503,25 +488,21 @@ These files live in the \`memory-bank/\` directory:
 ### 8. Backup & Restore
 | Tool | Purpose |
 |------|---------|
-| \`create_backup\` | Create a timestamped backup of the Memory Bank |
-| \`list_backups\` | List all available backups |
+| \`create_backup\` | Create a timestamped backup or list backups (use \`listOnly:true\` to list) |
 | \`restore_backup\` | Restore from a backup (auto-creates pre-restore backup) |
 
+### 9. Multi-Store Management
 ### 9. Multi-Store Management
 | Tool | Purpose |
 |------|---------|
 | \`list_stores\` | List all registered Memory Bank stores |
-| \`select_store\` | Switch the active store (by path or storeId) |
-| \`register_store\` | Add a store to the persistent registry |
-| \`unregister_store\` | Remove a store from the registry |
+| \`select_store\` | Switch active store or register/unregister stores (use \`action\` param: select/register/unregister) |
 
 ### 10. Sequential Thinking
 | Tool | Purpose |
 |------|---------|
-| \`sequential_thinking\` | Record a numbered thinking step (raw thought NOT returned) |
-| \`reset_sequential_thinking\` | Clear thinking session state |
+| \`sequential_thinking\` | Record numbered thinking steps or reset session (use \`action:'reset'\` to clear) |
 | \`finalize_thinking_session\` | Persist thinking outcomes to Memory Bank (summary, decisions, tasks, progress) |
-
 ## Quick-Start Checklist
 1. \`get_instructions\` — read these instructions (done!)
 2. \`get_context_digest\` — load current project state
@@ -1575,63 +1556,6 @@ export async function handleCreateBackup(
 }
 
 /**
- * Processes the list_backups tool
- * @deprecated Use create_backup with listOnly:true instead
- * 
- * Lists all available Memory Bank backups.
- * 
- * @param memoryBankManager Memory Bank Manager instance
- * @returns Operation result with list of backups
- */
-export async function handleListBackups(
-  memoryBankManager: MemoryBankManager
-) {
-  logger.info('CoreTools', 'DEPRECATED: list_backups is deprecated. Use create_backup with listOnly:true instead.');
-  try {
-    const memoryBankDirCheck = memoryBankManager.getMemoryBankDir();
-    if (!memoryBankDirCheck) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: 'Memory Bank not initialized. Use set_memory_bank_path or initialize_memory_bank first.',
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    const backups = await memoryBankManager.listBackups();
-    
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            backups,
-            metadata: {
-              count: backups.length,
-              timestamp: new Date().toISOString(),
-            },
-          }, null, 2),
-        },
-      ],
-    };
-  } catch (error) {
-    console.error('Error in handleListBackups:', error);
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Error listing backups: ${error}`,
-        },
-      ],
-      isError: true,
-    };
-  }
-}
-
-/**
  * Processes the restore_backup tool
  * 
  * Restores the Memory Bank from a specified backup.
@@ -1665,7 +1589,7 @@ export async function handleRestoreBackup(
         content: [
           {
             type: 'text',
-            text: 'Backup ID is required. Use list_backups to see available backups.',
+            text: 'Backup ID is required. Use create_backup with listOnly:true to see available backups.',
           },
         ],
         isError: true,

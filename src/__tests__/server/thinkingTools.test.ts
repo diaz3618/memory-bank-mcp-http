@@ -1,7 +1,6 @@
 import { test, expect, describe } from 'bun:test';
 import {
   handleSequentialThinking,
-  handleResetSequentialThinking,
 } from '../../server/tools/ThinkingTools.js';
 
 describe('ThinkingTools', () => {
@@ -9,7 +8,7 @@ describe('ThinkingTools', () => {
   describe('sequential_thinking', () => {
     test('should return metadata only — raw thought NOT in output', () => {
       // Reset first to ensure clean state
-      handleResetSequentialThinking();
+      handleSequentialThinking({ reset: true });
 
       const result = handleSequentialThinking({
         thought: 'This is a secret thought that should NOT appear in output',
@@ -34,11 +33,11 @@ describe('ThinkingTools', () => {
       expect(text).not.toContain('secret thought');
       expect(text).not.toContain('should NOT appear');
 
-      handleResetSequentialThinking('test-no-leak');
+      handleSequentialThinking({ reset: true, sessionId: 'test-no-leak' });
     });
 
     test('should auto-adjust totalThoughts upward', () => {
-      handleResetSequentialThinking('test-adjust');
+      handleSequentialThinking({ reset: true, sessionId: 'test-adjust' });
 
       const result = handleSequentialThinking({
         thought: 'Step beyond original total',
@@ -51,11 +50,11 @@ describe('ThinkingTools', () => {
       const parsed = JSON.parse(result.content[0].text);
       expect(parsed.totalThoughts).toBe(5); // auto-adjusted from 3 to 5
 
-      handleResetSequentialThinking('test-adjust');
+      handleSequentialThinking({ reset: true, sessionId: 'test-adjust' });
     });
 
     test('should track branches', () => {
-      handleResetSequentialThinking('test-branch');
+      handleSequentialThinking({ reset: true, sessionId: 'test-branch' });
 
       // First thought
       handleSequentialThinking({
@@ -81,11 +80,11 @@ describe('ThinkingTools', () => {
       expect(parsed.branches).toContain('alt-approach');
       expect(parsed.thoughtHistoryLength).toBe(2);
 
-      handleResetSequentialThinking('test-branch');
+      handleSequentialThinking({ reset: true, sessionId: 'test-branch' });
     });
 
     test('should track history length across multiple thoughts', () => {
-      handleResetSequentialThinking('test-history');
+      handleSequentialThinking({ reset: true, sessionId: 'test-history' });
 
       for (let i = 1; i <= 4; i++) {
         handleSequentialThinking({
@@ -111,11 +110,11 @@ describe('ThinkingTools', () => {
       expect(parsed.thoughtHistoryLength).toBe(5);
       expect(parsed.totalThoughts).toBe(5);
 
-      handleResetSequentialThinking('test-history');
+      handleSequentialThinking({ reset: true, sessionId: 'test-history' });
     });
   });
 
-  describe('reset_sequential_thinking', () => {
+  describe('sequential_thinking with reset action', () => {
     test('should reset a specific session', () => {
       handleSequentialThinking({
         thought: 'test',
@@ -125,11 +124,11 @@ describe('ThinkingTools', () => {
         sessionId: 'to-reset',
       });
 
-      const result = handleResetSequentialThinking('to-reset');
+      const result = handleSequentialThinking({ reset: true, sessionId: 'to-reset' });
       const parsed = JSON.parse(result.content[0].text);
       expect(parsed.reset).toBe(true);
       expect(parsed.sessionId).toBe('to-reset');
-      expect(parsed.existed).toBe(true);
+      expect(parsed.hadSession).toBe(true);
     });
 
     test('should reset all sessions when no sessionId given', () => {
@@ -148,23 +147,23 @@ describe('ThinkingTools', () => {
         sessionId: 'sess-b',
       });
 
-      const result = handleResetSequentialThinking();
+      const result = handleSequentialThinking({ reset: true });
       const parsed = JSON.parse(result.content[0].text);
       expect(parsed.reset).toBe(true);
       expect(parsed.sessionsCleared).toBeGreaterThanOrEqual(2);
     });
 
     test('should handle resetting non-existent session gracefully', () => {
-      const result = handleResetSequentialThinking('nonexistent-session-id');
+      const result = handleSequentialThinking({ reset: true, sessionId: 'nonexistent-session-id' });
       const parsed = JSON.parse(result.content[0].text);
       expect(parsed.reset).toBe(true);
-      expect(parsed.existed).toBe(false);
+      expect(parsed.hadSession).toBe(false);
     });
   });
 
   describe('session isolation', () => {
     test('different sessionIds should have independent state', () => {
-      handleResetSequentialThinking();
+      handleSequentialThinking({ reset: true });
 
       handleSequentialThinking({
         thought: 'Session A thought 1',
@@ -192,7 +191,7 @@ describe('ThinkingTools', () => {
       const parsedB = JSON.parse(resultB.content[0].text);
       expect(parsedB.thoughtHistoryLength).toBe(1); // B has only 1 thought
 
-      handleResetSequentialThinking();
+      handleSequentialThinking({ reset: true });
     });
   });
 });

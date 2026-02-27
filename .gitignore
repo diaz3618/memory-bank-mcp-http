@@ -60,10 +60,3 @@ prepare-*.sh
 memory-bank
 .agents
 tests
-
-# Local-only development directories (not committed)
-backup/
-repos/
-
-# Local MCP rules (per-machine config)
-.mcprules-*

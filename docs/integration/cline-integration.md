@@ -2,36 +2,75 @@
 
 ## Overview
 
-[Cline](https://github.com/cline/cline) is an AI coding assistant for VS Code. Memory Bank MCP integrates with Cline through the Model Context Protocol (MCP) and optionally supports Cline's `.clinerules` file format for operational mode configuration.
+[Cline](https://github.com/cline/cline) is an AI coding assistant for VS Code. Memory Bank MCP HTTP integrates with Cline through the Model Context Protocol (MCP) using HTTP transport.
+
+> **Note**: This repo uses **HTTP/SSE transport** for Docker-based deployments.  
+> Looking for the **stdio/npm version** for local Cline integration? → [diaz3618/memory-bank-mcp](https://github.com/diaz3618/memory-bank-mcp)
 
 **Important**: Memory Bank MCP does **NOT** require Cline to function. The `.clinerules` file format was adopted as an optional feature for Cline compatibility, but Memory Bank works standalone with any MCP-compatible AI assistant.
 
-## Why `.clinerules` Support?
+## Prerequisites
 
-Memory Bank MCP adopted Cline's `.clinerules` file format to provide:
+Before integrating with Cline, you need:
 
-1. **Optional Cline compatibility** - Share mode configurations between Memory Bank and Cline
-2. **Mode-based behavior** - Define operational modes (architect, code, debug, etc.)
-3. **Structured configuration** - JSON-based mode definitions with triggers and instructions
+1. **Running Docker Compose stack**: Follow the [Deployment Guide](../deployment/http-postgres-redis-supabase.md)
+2. **API key**: Generate one using the API key management endpoints
+3. **Network access**: Cline must be able to reach the MCP server URL
 
-**You do NOT need Cline installed to use Memory Bank MCP.** The `.clinerules` feature is entirely optional.
+## Setup with Cline
 
-## Setup with Cline (Optional)
-
-If you use Cline, add Memory Bank MCP to Cline's MCP configuration in VS Code settings or `~/.cline/mcp_config.json`:
+Add Memory Bank MCP HTTP to Cline's MCP configuration in VS Code settings or `~/.cline/mcp_config.json`:
 
 ```json
 {
   "mcpServers": {
     "memory-bank-mcp": {
-      "command": "npx",
-      "args": ["-y", "@diazstg/memory-bank-mcp", "--mode", "code", "--username", "YourName"]
+      "type": "http",
+      "url": "http://localhost/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
+    }
+  }
+}
+```
+
+**Alternative using X-API-Key header:**
+
+```json
+{
+  "mcpServers": {
+    "memory-bank-mcp": {
+      "type": "http",
+      "url": "http://localhost/mcp",
+      "headers": {
+        "X-API-Key": "<your-api-key>"
+      }
     }
   }
 }
 ```
 
 Cline can now use all Memory Bank MCP tools via MCP.
+
+## Generate an API Key
+
+Create a new API key via the REST API:
+
+```bash
+curl -X POST http://localhost/api/keys \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "cline-key",
+    "scopes": ["read", "write"],
+    "rateLimit": 1000,
+    "expiresIn": "30d"
+  }'
+```
+
+Copy the returned `key` value and use it in your Cline configuration above.
+
+See the [Deployment Guide](../deployment/http-postgres-redis-supabase.md#api-key-management) for complete API key documentation.
 
 ## `.clinerules` Files for Mode Configuration
 
@@ -100,43 +139,47 @@ The Memory Bank Server supports switching between different modes based on the a
 
 ### 2. Status Prefix
 
-All server responses include a status prefix that indicates whether the Memory Bank is active or inactive:
+All server responses include a status prefix that indicates whether the Memory Bank is active:
 
 - `[MEMORY BANK: ACTIVE]`: Indicates that a Memory Bank was found and is being used
 - `[MEMORY BANK: INACTIVE]`: Indicates that no Memory Bank was found
-- `[MEMORY BANK: UPDATING]`: Indicates that the Memory Bank is being updated (during UMB command execution)
 
 ### 3. UMB Command (Update Memory Bank)
 
-The UMB command allows temporarily updating Memory Bank files, even in modes that normally don't allow file modifications.
+The UMB command allows temporarily updating Memory Bank files, even in modes that normally have restricted file access.
 
-To use the UMB command:
+To use UMB mode with the `switch_mode` tool:
 
-1. Send the command "Update Memory Bank" or "UMB"
-2. The server will enter UMB mode, allowing temporary updates
-3. After completing the updates, the server will return to normal mode
+```json
+{
+  "name": "switch_mode",
+  "arguments": {
+    "umb": true,
+    "umbCommand": "Update Memory Bank"
+  }
+}
+```
+
+After completing the updates, switch back to normal mode:
+
+```json
+{
+  "name": "switch_mode",
+  "arguments": {
+    "mode": "code"
+  }
+}
+```
 
 ### 4. Mode Triggers
 
 Mode triggers allow automatic detection of situations that may require a mode change. When a trigger is detected, the server suggests switching to the corresponding mode.
 
-## Command Line Usage
+## Mode Management
 
-You can specify the initial mode when starting the server:
+Use the `switch_mode` tool to change operational modes or get current mode info:
 
-```bash
-memory-bank-mcp --mode architect
-# or
-memory-bank-mcp -m code
-```
-
-## Additional MCP Tools
-
-The integration with `.clinerules` files adds the following MCP tools:
-
-### switch_mode
-
-Switches to a specific mode.
+### Switch to a Specific Mode
 
 ```json
 {
@@ -147,56 +190,16 @@ Switches to a specific mode.
 }
 ```
 
-### get_current_mode
-
-Gets information about the current mode.
+### Get Current Mode Information
 
 ```json
 {
-  "name": "get_current_mode",
-  "arguments": {
-    "random_string": "dummy"
-  }
+  "name": "switch_mode",
+  "arguments": {}
 }
 ```
 
-### process_umb_command
-
-Processes the Update Memory Bank (UMB) command.
-
-```json
-{
-  "name": "process_umb_command",
-  "arguments": {
-    "command": "Update Memory Bank"
-  }
-}
-```
-
-## Workflow Example
-
-1. Start the server with a specific mode:
-
-   ```bash
-   memory-bank-mcp --mode architect
-   ```
-
-2. The server detects the `.clinerules` files in the project directory (creating missing ones if necessary)
-
-3. The server applies the rules of the specified mode
-
-4. When needed, use the UMB command to update the Memory Bank:
-
-   ```json
-   {
-     "name": "process_umb_command",
-     "arguments": {
-       "command": "Update Memory Bank"
-     }
-   }
-   ```
-
-5. Switch between modes as needed:
+The server will return information about the current mode and available modes.
 
    ```json
    {

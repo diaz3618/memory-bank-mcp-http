@@ -2,18 +2,40 @@
 
 ## Overview
 
-[Roo Code](https://github.com/RooVetGit/Roo-Code) is an AI-powered VS Code extension that supports multiple operational modes and MCP (Model Context Protocol) servers. Memory Bank MCP integrates seamlessly with Roo Code to provide persistent memory and context.
+[Roo Code](https://github.com/RooVetGit/Roo-Code) is an AI-powered VS Code extension that supports multiple operational modes and MCP (Model Context Protocol) servers. Memory Bank MCP HTTP integrates seamlessly with Roo Code to provide persistent memory and context.
+
+> **Note**: This repo uses **HTTP/SSE transport** for Docker-based deployments.  
+> Looking for the **stdio/npm version** for local Roo Code integration? → [diaz3618/memory-bank-mcp](https://github.com/diaz3618/memory-bank-mcp)
 
 ## Setup
 
 ### Prerequisites
 
 - VS Code with [Roo Code extension](https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline) installed
-- Node.js and npx installed
+- **Running Docker Compose stack**: Follow the [Deployment Guide](../deployment/http-postgres-redis-supabase.md)
+- **API key**: Generate one using the API key management endpoints
+- **Network access**: Roo Code must be able to reach the MCP server URL
+
+### Generate an API Key
+
+Create a new API key via the REST API:
+
+```bash
+curl -X POST http://localhost/api/keys \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "roo-code-key",
+    "scopes": ["read", "write"],
+    "rateLimit": 1000,
+    "expiresIn": "30d"
+  }'
+```
+
+Copy the returned `key` value for use in your Roo Code configuration.
 
 ### Configuration
 
-Add Memory Bank MCP to Roo Code's MCP configuration. In VS Code:
+Add Memory Bank MCP HTTP to Roo Code's MCP configuration. In VS Code:
 
 1. Open Settings (Ctrl+,)
 2. Search for "Roo Code MCP"  
@@ -25,8 +47,27 @@ Or edit `~/.roo-code/mcp_config.json` directly:
 {
   "mcpServers": {
     "memory-bank-mcp": {
-      "command": "npx",
-      "args": ["-y", "@diazstg/memory-bank-mcp", "--mode", "code", "--username", "YourName"]
+      "type": "http",
+      "url": "http://localhost/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
+    }
+  }
+}
+```
+
+**Alternative using X-API-Key header:**
+
+```json
+{
+  "mcpServers": {
+    "memory-bank-mcp": {
+      "type": "http",
+      "url": "http://localhost/mcp",
+      "headers": {
+        "X-API-Key": "<your-api-key>"
+      }
     }
   }
 }
@@ -40,14 +81,11 @@ Create `.roocode/mcp.json` in your project root:
 {
   "servers": {
     "memory-bank-mcp": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@diazstg/memory-bank-mcp",
-        "--path", ".",
-        "--folder", "memory-bank",
-        "--username", "YourName"
-      ]
+      "type": "http",
+      "url": "http://localhost/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
     }
   }
 }
@@ -198,8 +236,18 @@ Example custom mode: "Review"
 ### Memory Bank Tools Not Available
 
 - Verify MCP configuration in Roo Code settings
-- Check npx can run: `npx @diazstg/memory-bank-mcp --help`
+- Check Docker Compose stack is running: `docker compose ps`
+- Check server health: `curl http://localhost/health`
+- Verify API key is valid and has correct scopes
+- Check server logs: `docker compose logs -f mbmcp-server`
 - Restart VS Code after configuration changes
+
+### Authentication Errors
+
+- Verify your API key is correct in Roo Code MCP settings
+- Check key scopes include read and write permissions
+- Verify key hasn't expired: `curl http://localhost/api/keys -H "Authorization: Bearer <key>"`
+- Try generating a new key with appropriate scopes
 
 ### Mode Mismatches
 
@@ -212,14 +260,27 @@ Example custom mode: "Review"
 
 - Verify Memory Bank is initialized: check for `memory-bank/` directory
 - Initialize if needed: `@roo Initialize memory bank in current directory`
+- Check database connectivity: `curl http://localhost/health`
+
+### Connection Errors
+
+- Verify the URL in your MCP configuration matches your deployment
+- If using Traefik: `http://localhost/mcp`
+- If direct connection: `http://localhost:3100/mcp`
+- Check firewall rules allow connections to the MCP port
 
 ## See Also
 
 - [AI Assistant Integration Guide](./ai-assistant-integration.md) - General MCP integration patterns
-- [Generic MCP Integration Guide](./generic-mcp-integration.md) - Full MCP configuration reference
+- [Deployment Guide](../deployment/http-postgres-redis-supabase.md) - Complete deployment instructions
+- [Generic MCP Integration Guide](./generic-mcp-integration.md) - HTTP configuration reference
 - [Roo Code Documentation](https://roocode.com/docs) - Official Roo Code docs
-- [Roo Code Memory Bank Comparison](../reference/roo-code-memory-bank-comparison.md) - Historical context
+
+## Related Projects
+
+- **Memory Bank MCP (stdio)**: [diaz3618/memory-bank-mcp](https://github.com/diaz3618/memory-bank-mcp) — npm package using stdio transport for local Roo Code integration
+- **Memory Bank VS Code Extension**: [diaz3618/Memory-Bank-VSCode-Ext](https://github.com/diaz3618/Memory-Bank-VSCode-Ext) — Native VS Code extension with webview UI
 
 ---
 
-*Enhance Roo Code with persistent memory and project knowledge*
+*Enhance Roo Code with persistent memory and project knowledge via HTTP transport*

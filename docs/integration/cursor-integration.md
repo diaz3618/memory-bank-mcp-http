@@ -1,6 +1,9 @@
-# Integrating Memory Bank MCP with Cursor
+# Integrating Memory Bank MCP HTTP with Cursor
 
-This guide provides detailed instructions for integrating Memory Bank MCP with the Cursor code editor.
+This guide provides detailed instructions for integrating Memory Bank MCP HTTP server with the Cursor code editor.
+
+> **Note**: This repo uses **HTTP/SSE transport** for Docker-based deployments.  
+> Looking for the **stdio/npm version** for local Cursor integration? → [diaz3618/memory-bank-mcp](https://github.com/diaz3618/memory-bank-mcp)
 
 ## What is Cursor?
 
@@ -8,57 +11,75 @@ This guide provides detailed instructions for integrating Memory Bank MCP with t
 
 ## Prerequisites
 
-Before integrating Memory Bank MCP with Cursor, ensure you have:
+Before integrating Memory Bank MCP HTTP with Cursor, ensure you have:
 
-1. Installed [Cursor](https://cursor.sh/)
-2. Verified that npx is available on your system:
+1. **Installed [Cursor](https://cursor.sh/)**
+2. **Running Docker Compose stack**: Follow the [Deployment Guide](../deployment/http-postgres-redis-supabase.md)
+3. **API key**: Generate one using the API key management endpoints
+4. **Network access**: Cursor must be able to reach the MCP server URL (typically `http://localhost/mcp`)
 
-   ```bash
-   npx --version
-   ```
+## Generate an API Key
 
-3. Verified that Memory Bank MCP is accessible via npx:
+Create a new API key via the REST API:
 
-   ```bash
-   npx @diazstg/memory-bank-mcp --help
-   ```
+```bash
+curl -X POST http://localhost/api/keys \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "cursor-key",
+    "scopes": ["read", "write"],
+    "rateLimit": 1000,
+    "expiresIn": "30d"
+  }'
+```
+
+**Response:**
+```json
+{
+  "id": "key_abc123",
+  "key": "mbmcp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "name": "cursor-key",
+  "scopes": ["read", "write"],
+  "rateLimit": 1000,
+  "expiresAt": "2026-03-29T..."
+}
+```
+
+> **⚠️ Important**: Copy the `key` value immediately — it cannot be retrieved later!
+
+See the [Deployment Guide](../deployment/http-postgres-redis-supabase.md#api-key-management) for complete API key documentation.
 
 ## Configuration Steps
 
-### 1. Verify npx Access to Memory Bank MCP
-
-Ensure that you can access Memory Bank MCP via npx:
-
-```bash
-npx @diazstg/memory-bank-mcp --help
-```
-
-This command should display the help information for Memory Bank MCP.
-
-### 2. Open Cursor Settings
+### 1. Open Cursor Settings
 
 1. Launch Cursor
 2. Go to Settings (⚙️) in the bottom left corner
 3. Navigate to Extensions > MCP
 4. Click on "Add MCP Server"
 
-### 3. Configure the MCP Server
+### 2. Configure the MCP Server (HTTP Transport)
 
 Fill in the following details:
 
 - **Name**: Memory Bank MCP
-- **Command**: npx
-- **Arguments**: `@diazstg/memory-bank-mcp` followed by any optional parameters
-  - Example: `@diazstg/memory-bank-mcp --mode code --username your-github-username` (recommended)
-  - Example: `@diazstg/memory-bank-mcp --mode architect --username "Your Name"`
-  - The `--username` parameter is highly recommended for progress tracking
+- **Type**: HTTP
+- **URL**: `http://localhost/mcp` (or `http://localhost:3100/mcp` if not using Traefik)
+- **Headers**:
+  - Click "Add Header"
+  - Key: `Authorization`
+  - Value: `Bearer <your-api-key>` (replace with your actual API key from step above)
 
-### 4. Save and Activate
+**Alternative**: Use `X-API-Key` header:
+- Key: `X-API-Key`
+- Value: `<your-api-key>`
+
+### 3. Save and Activate
 
 1. Click "Save" to add the MCP server
 2. Enable the MCP server by toggling it on in the MCP servers list
 
-### 5. Verify Connection
+### 4. Verify Connection
 
 1. Open a project in Cursor
 2. Open the Command Palette (Ctrl+Shift+P or Cmd+Shift+P)
@@ -211,7 +232,7 @@ Use the `/mcp` command prefix to interact with Memory Bank MCP:
 
 If you see "Memory Bank not found" errors:
 
-1. Verify the Memory Bank path:
+1. Verify the Memory Bank path by calling the MCP tool:
 
    ```
    /mcp memory-bank-mcp set_memory_bank_path path=/absolute/path/to/memory-bank
@@ -227,13 +248,48 @@ If you see "Memory Bank not found" errors:
 
 If the MCP server is not responding:
 
-1. Check if npx can access the package:
+1. Verify Docker Compose stack is running:
 
    ```bash
-   npx @diazstg/memory-bank-mcp --help
+   docker compose ps
    ```
 
-2. Restart Cursor and try again
+2. Check server health:
+
+   ```bash
+   curl http://localhost/health
+   ```
+
+3. Check server logs:
+
+   ```bash
+   docker compose logs -f mbmcp-server
+   ```
+
+4. Restart Cursor and try again
+
+### Authentication Errors
+
+If you see 401 Unauthorized or 403 Forbidden errors:
+
+1. Verify your API key is correct in Cursor MCP settings
+2. Check key scopes include the operation you're attempting
+3. Verify key hasn't expired:
+
+   ```bash
+   curl http://localhost/api/keys -H "Authorization: Bearer <admin-key>"
+   ```
+
+4. Try generating a new key with appropriate scopes
+
+### Connection Refused
+
+If you see connection refused errors:
+
+1. Verify the URL in your MCP configuration matches your deployment
+2. If using Traefik: `http://localhost/mcp`
+3. If direct connection: `http://localhost:3100/mcp`
+4. Check firewall rules allow connections to the MCP port
 
 3. Clear npx cache if needed:
 

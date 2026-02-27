@@ -27,8 +27,8 @@ docker compose --profile local-db up -d
 
 | Registry | Image |
 |----------|-------|
-| Docker Hub | `diaz3618/memory-bank-mcp:latest-http` |
-| GHCR | `ghcr.io/diaz3618/memory-bank-mcp:latest-http` |
+| Docker Hub | `diaz3618/memory-bank-mcp-http:latest-http` |
+| GHCR | `ghcr.io/diaz3618/memory-bank-mcp-http:latest-http` |
 
 See [Deployment Guide](docs/deployment/http-postgres-redis-supabase.md) for Supabase and advanced configuration.
 
@@ -117,7 +117,7 @@ This variant deploys as a Docker Compose stack:
 
 | Service | Image | Purpose |
 |---------|-------|---------|
-| `mbmcp-server` | `diaz3618/memory-bank-mcp:1.8.0-http-pg-redis` | MCP server (HTTP Streamable) |
+| `mbmcp-server` | `diaz3618/memory-bank-mcp-http:1.8.0-http-pg-redis` | MCP server (HTTP Streamable) |
 | `postgres` | `postgres:17-alpine` | Primary storage with RLS |
 | `redis` | `redis:7-alpine` | Session/API key cache |
 | `traefik` | `traefik:v3.3` | Reverse proxy + TLS |

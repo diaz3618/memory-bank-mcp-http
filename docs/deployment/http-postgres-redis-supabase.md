@@ -475,7 +475,7 @@ COMMIT;
 
 ```bash
 docker compose --profile local-db down -v
-docker rmi diaz3618/memory-bank-mcp:latest-http
+docker rmi diaz3618/memory-bank-mcp-http:latest-http
 ```
 
 ### Option 4: Git revert

@@ -1,10 +1,12 @@
 # AI Assistant Integration Guide
 
-This guide explains how to integrate Memory Bank MCP with AI assistants through the Model Context Protocol (MCP).
+This guide explains how to integrate Memory Bank MCP HTTP server with AI assistants through the Model Context Protocol (MCP).
+
+> **Note**: This repo uses HTTP/SSE transport for production deployments. Looking for the stdio/npm version? See [diaz3618/memory-bank-mcp](https://github.com/diaz3618/memory-bank-mcp)
 
 ## Overview
 
-Memory Bank MCP is a **stdio-based MCP server** that provides AI assistants with:
+Memory Bank MCP HTTP server provides AI assistants with:
 
 - Persistent memory and context across sessions
 - Progress tracking and decision logging 
@@ -14,25 +16,24 @@ Memory Bank MCP is a **stdio-based MCP server** that provides AI assistants with
 
 ## Supported AI Assistants
 
-Memory Bank MCP works with any AI assistant that supports the Model Context Protocol via stdio transport:
+Memory Bank MCP HTTP works with any AI assistant that supports the Model Context Protocol via HTTP transport:
 
-- **Claude Desktop** - Native MCP support
-- **Cursor** - See [Cursor Integration Guide](./cursor-integration.md)
-- **Cline** - Includes `.clinerules` support, see [Cline Integration Guide](./cline-integration.md)
-- **Roo Code** - See [Roo Code Integration Guide](./roo-code-integration.md)
 - **Claude Code** - See [Claude Code Integration Guide](./claude-code-integration.md)
 - **VS Code Copilot** - See [VS Code Copilot Integration Guide](./vscode-copilot-integration.md)
+- **Cursor** - See [Cursor Integration Guide](./cursor-integration.md)
+- **Cline** - See [Cline Integration Guide](./cline-integration.md)
+- **Roo Code** - See [Roo Code Integration Guide](./roo-code-integration.md)
 - **Any MCP-compatible client** - See [Generic MCP Integration Guide](./generic-mcp-integration.md)
 
 ## Architecture
 
-Memory Bank MCP uses the Model Context Protocol stdio transport:
+Memory Bank MCP uses the Model Context Protocol HTTP/SSE transport:
 
 ```
-┌─────────────────────┐      stdio (JSON-RPC)    ┌──────────────────────┐
+┌─────────────────────┐   HTTP/SSE (JSON-RPC)    ┌──────────────────────┐
 │   AI Assistant      │◄────────────────────────►│  Memory Bank MCP     │
-│                     │  stdin/stdout            │  Server              │
-│  (Claude, Cursor,   │                          │                      │
+│                     │  REST + Server-Sent      │  HTTP Server         │
+│  (Claude, Cursor,   │  Events                  │                      │
 │   Cline, etc.)      │                          │  • Tools             │
 │                     │                          │  • Resources         │
 │                     │                          │  • File Management   │

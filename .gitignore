@@ -60,3 +60,5 @@ prepare-*.sh
 memory-bank
 .agents
 tests
+.mcprules-*
+src/__tests__/server/temp-server-test-dir/

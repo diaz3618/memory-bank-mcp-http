@@ -10,22 +10,52 @@ Create `.vscode/mcp.json` in your project:
 {
   "servers": {
     "memory-bank-mcp": {
-      "command": "npx",
-      "args": ["-y", "@diazstg/memory-bank-mcp"]
+      "type": "http",
+      "url": "http://localhost/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
     }
   }
 }
 ```
 
-VS Code will detect this file and start the MCP server automatically.
+**Note**: If not using Traefik reverse proxy, connect directly to port 3100:
+```json
+{
+  "servers": {
+    "memory-bank-mcp": {
+      "type": "http",
+      "url": "http://localhost:3100/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
+    }
+  }
+}
+```
 
-### Option 2: Via the Extension
+VS Code will detect this file and connect to your running HTTP MCP server.
 
-If you have the Memory Bank MCP extension installed:
+### Option 2: stdio transport via npm
 
-1. Open the Command Palette (`Ctrl+Shift+P`)
-2. Run `Memory Bank: Install MCP Server`
-3. The extension writes `.vscode/mcp.json` for you
+Looking for the stdio version? See [diaz3618/memory-bank-mcp](https://github.com/diaz3618/memory-bank-mcp) for the npm package.
+
+## Prerequisites
+
+1. Deploy the HTTP MCP server using Docker:
+   ```bash
+   docker compose --profile local-db up -d
+   ```
+
+2. Generate an API key:
+   ```bash
+   curl -X POST http://localhost/api/keys \
+     -H "Content-Type: application/json" \
+     -d '{"name": "vscode-copilot", "expiresIn": "30d"}'
+   ```
+
+3. Copy the returned API key to your `.vscode/mcp.json`
 
 ## Copilot Chat
 

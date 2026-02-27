@@ -23,12 +23,12 @@ docker compose --profile local-db up -d
 
 ### Docker Images
 
-<small>**Note: Both are private for now until it's tested**</small>
-
 | Registry | Image |
 |----------|-------|
 | Docker Hub | `diaz3618/memory-bank-mcp-http:latest-http` |
 | GHCR | `ghcr.io/diaz3618/memory-bank-mcp-http:latest-http` |
+
+**Multi-architecture support**: `linux/amd64`, `linux/arm64`
 
 See [Deployment Guide](docs/deployment/http-postgres-redis-supabase.md) for Supabase and advanced configuration.
 
@@ -117,20 +117,24 @@ This variant deploys as a Docker Compose stack:
 
 | Service | Image | Purpose |
 |---------|-------|---------|
-| `mbmcp-server` | `diaz3618/memory-bank-mcp-http:1.8.0-http-pg-redis` | MCP server (HTTP Streamable) |
-| `postgres` | `postgres:17-alpine` | Primary storage with RLS |
-| `redis` | `redis:7-alpine` | Session/API key cache |
+| `mbmcp-server` | `diaz3618/memory-bank-mcp-http:latest-http` | MCP server (HTTP Streamable) |
 | `traefik` | `traefik:v3.3` | Reverse proxy + TLS |
 
 ## Documentation
 
 | Topic | Link |
 |-------|------|
-| Getting Started | [npx usage](docs/getting-started/npx-usage.md), [build with Bun](docs/getting-started/build-with-bun.md), [custom folder](docs/getting-started/custom-folder-name.md) |
-| Guides | [Remote server](docs/guides/remote-server.md), [SSH keys](docs/guides/ssh-keys-guide.md), [usage modes](docs/guides/usage-modes.md), [status system](docs/guides/memory-bank-status-prefix.md), [migration](docs/guides/migration-guide.md), [debug MCP](docs/guides/debug-mcp-config.md) |
+| Getting Started | [build with Bun](docs/getting-started/build-with-bun.md), [custom folder](docs/getting-started/custom-folder-name.md) |
+| Deployment | [HTTP + Postgres + Redis + Supabase](docs/deployment/http-postgres-redis-supabase.md) |
+| Guides | [usage modes](docs/guides/usage-modes.md), [status system](docs/guides/memory-bank-status-prefix.md), [migration](docs/guides/migration-guide.md), [debug MCP](docs/guides/debug-mcp-config.md) |
 | Integrations | [VS Code/Copilot](docs/integration/vscode-copilot-integration.md), [Claude Code](docs/integration/claude-code-integration.md), [Cursor](docs/integration/cursor-integration.md), [Cline](docs/integration/cline-integration.md), [Roo Code](docs/integration/roo-code-integration.md), [generic MCP](docs/integration/generic-mcp-integration.md) |
 | Reference | [MCP protocol](docs/reference/mcp-protocol-specification.md), [rules format](docs/reference/rule-formats.md), [file naming](docs/reference/file-naming-convention.md) |
 | Development | [Architecture](ARCHITECTURE.md), [testing](docs/development/testing-guide.md), [logging](docs/development/logging-system.md) |
+
+## Related Projects
+
+- **Memory Bank MCP (stdio)**: [diaz3618/memory-bank-mcp](https://github.com/diaz3618/memory-bank-mcp) — npmjs package using stdio transport for local Claude Desktop/Cline integration
+- **Memory Bank VS Code Extension**: [diaz3618/Memory-Bank-VSCode-Ext](https://github.com/diaz3618/Memory-Bank-VSCode-Ext) — Native VS Code extension with webview UI for browsing memory banks
 
 ## Contributing
 

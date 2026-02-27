@@ -2,45 +2,54 @@
 
 ## Getting Started
 
-- [NPX Usage](npx-usage.md) — Run without installing
-- [Build with Bun](build-with-bun.md) — Local development build
-- [Custom Folder Name](custom-folder-name.md) — Change the default `memory-bank/` directory
+- [Build with Bun](getting-started/build-with-bun.md) — Local development build
+- [Custom Folder Name](getting-started/custom-folder-name.md) — Change the default `memory-bank/` directory
+
+## Deployment
+
+- [HTTP + Postgres + Redis + Supabase](deployment/http-postgres-redis-supabase.md) — Full stack deployment guide
 
 ## Guides
 
-- [Usage Modes](usage-modes.md) — Architect, code, ask, debug, test
-- [Remote Server](remote-server.md) — SSH-based remote storage
-- [SSH Keys](ssh-keys-guide.md) — Key generation and configuration
-- [Migration](migration-guide.md) — Upgrading from older versions
-- [Debug MCP Config](debug-mcp-config.md) — Troubleshoot connection issues
+- [Usage Modes](guides/usage-modes.md) — Architect, code, ask, debug, test
+- [Migration](guides/migration-guide.md) — Upgrading from older versions
+- [Memory Bank Status](guides/memory-bank-status-prefix.md) — Understanding status indicators
+- [Debug MCP Config](guides/debug-mcp-config.md) — Troubleshoot connection issues
 
 ## Integrations
 
-- [AI Assistants (general)](ai-assistant-integration.md) — Generic MCP integration patterns
-- [Cursor](cursor-integration.md) — Cursor IDE
-- [Cline](cline-integration.md) — VS Code extension with `.clinerules` support
-- [Roo Code](roo-code-integration.md) — VS Code extension
+- [AI Assistants (general)](integration/ai-assistant-integration.md) — Generic MCP integration patterns
+- [VS Code with Copilot](integration/vscode-copilot-integration.md) — GitHub Copilot integration
+- [Claude Code](integration/claude-code-integration.md) — Anthropic Claude Code integration
+- [Cursor](integration/cursor-integration.md) — Cursor IDE
+- [Cline](integration/cline-integration.md) — VS Code extension with `.clinerules` support
+- [Roo Code](integration/roo-code-integration.md) — VS Code extension
+- [Generic MCP](integration/generic-mcp-integration.md) — MCP-compatible clients
 
 ## Reference
 
-- [MCP Protocol Specification](reference/mcp-protocol-specification.md) — Stdio MCP protocol, tools & resources
-- [External MCP Clients](reference/requirements.md) — MCP client comparison (from modelcontextprotocol.io)
-- [Rule Formats](reference/rule-formats.md) — `.clinerules-*` file syntax
+- [MCP Protocol Specification](reference/mcp-protocol-specification.md) — HTTP/SSE MCP protocol, tools & resources
+- [Rule Formats](reference/rule-formats.md) — `.clinerules-*` and `.mcprules-*` file syntax
 - [Rule Examples](reference/rule-examples.md) — Sample rule configurations
 - [File Naming Convention](reference/file-naming-convention.md) — Naming conventions
-- [Roo Code Memory Bank Comparison](reference/roo-code-memory-bank-comparison.md) — Historical comparison
+- [Redis Conventions](reference/redis-conventions.md) — Redis key patterns and data structures
+- [Requirements](reference/requirements.md) — MCP client requirements
 
 ## Development
 
-- [Testing Guide](testing-guide.md) — How to run and write tests
-- [Cline Rules Testing](testing-clinerules.md) — Testing `.clinerules` integration
-- [Integration Testing](integration-testing-guide.md) — E2E test patterns
-- [Test Coverage](test-coverage.md) — Coverage reports
-- [Memory Bank MCP Startup](memory-bank-mcp-startup.md) — CLI options and initialization
-- [Logging System](logging-system.md) — Log levels and configuration
+- [Testing Guide](development/testing-guide.md) — How to run and write tests
+- [Cline Rules Testing](development/testing-clinerules.md) — Testing `.clinerules` integration
+- [Integration Testing](development/integration-testing-guide.md) — E2E test patterns
+- [Test Coverage](development/test-coverage.md) — Coverage reports
+- [Memory Bank MCP Startup](development/memory-bank-mcp-startup.md) — CLI options and initialization
+- [Logging System](development/logging-system.md) — Log levels and configuration
+
+## Related Projects
+
+- **Memory Bank MCP (stdio)**: [diaz3618/memory-bank-mcp](https://github.com/diaz3618/memory-bank-mcp) — npm package using stdio transport
+- **Memory Bank VS Code Extension**: [diaz3618/Memory-Bank-VSCode-Ext](https://github.com/diaz3618/Memory-Bank-VSCode-Ext) — Native VS Code extension
 
 ## Internal Documentation
 
 - [Research](internal/research/) — External project research and findings
-  - [Cline/RooCode Updates (Feb 2026)](internal/research/cline-roocode-updates-feb-2026.md)
 - [Archived Documentation](archive/) — Obsolete docs preserved for reference

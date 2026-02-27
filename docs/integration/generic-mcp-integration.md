@@ -1,26 +1,47 @@
 # Generic MCP Client Integration
 
-This guide covers integrating Memory Bank MCP with any client that supports the Model Context Protocol (MCP).
+This guide covers integrating Memory Bank MCP HTTP server with any client that supports the Model Context Protocol (MCP) over HTTP.
 
-## Configuration
+> **Note**: Looking for the stdio/npm version? See [diaz3618/memory-bank-mcp](https://github.com/diaz3618/memory-bank-mcp)
 
-All MCP clients use a similar configuration pattern:
+## HTTP Transport Configuration
+
+All MCP clients that support HTTP use a similar configuration pattern:
 
 ```json
 {
-  "command": "npx",
-  "args": ["-y", "@diazstg/memory-bank-mcp"]
+  "type": "http",
+  "url": "http://localhost/mcp",
+  "headers": {
+    "Authorization": "Bearer <your-api-key>"
+  }
 }
 ```
 
-### Common CLI Options
+**Direct connection** (without Traefik):
+```json
+{
+  "type": "http",
+  "url": "http://localhost:3100/mcp",
+  "headers": {
+    "Authorization": "Bearer <your-api-key>"
+  }
+}
+```
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--path <dir>` | Project directory | Current working directory |
-| `--folder <name>` | Memory bank folder name | `memory-bank` |
-| `--mode <mode>` | Initial mode | `code` |
-| `--remote` | Use SSH remote storage | — |
+### Prerequisites
+
+1. Deploy the server:
+   ```bash
+   docker compose --profile local-db up -d
+   ```
+
+2. Generate an API key:
+   ```bash
+   curl -X POST http://localhost/api/keys \
+     -H "Content-Type: application/json" \
+     -d '{"name": "my-client", "expiresIn": "30d"}'
+   ```
 
 ### Client-Specific Configuration
 
@@ -29,12 +50,9 @@ All MCP clients use a similar configuration pattern:
 | VS Code | `.vscode/mcp.json` |
 | Cursor | `.cursor/mcp.json` or settings |
 | Claude Desktop | `~/.claude/claude_desktop_config.json` |
-| Claude Code | `claude mcp add` or `~/.claude/claude_desktop_config.json` |
+| Claude Code | `~/.claude/claude_desktop_config.json` |
 | Cline | `.vscode/mcp.json` or Cline settings |
 | Roo Code | `.vscode/mcp.json` or Roo Code settings |
-| Codex | Environment configuration |
-| Gemini CLI | MCP server configuration |
-| Qwen Coder | MCP server configuration |
 
 ## Available Tools
 

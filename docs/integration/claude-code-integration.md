@@ -2,39 +2,55 @@
 
 ## Setup
 
-Add Memory Bank MCP to your Claude Code configuration:
-
-```bash
-claude mcp add memory-bank-mcp -- npx -y @diazstg/memory-bank-mcp --username your-github-username
-```
-
-Or add manually to `~/.claude/claude_desktop_config.json`:
+Add Memory Bank MCP HTTP server to your Claude Code configuration in `~/.claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "memory-bank-mcp": {
-      "command": "npx",
-      "args": ["-y", "@diazstg/memory-bank-mcp", "--username", "your-github-username"]
+      "url": "http://localhost/mcp",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
     }
   }
 }
 ```
 
-> **Note**: The `--username` parameter is highly recommended for progress tracking. You can use your GitHub username or full name.
-
-### With Custom Path
+**Without Traefik** (direct connection to port 3100):
 
 ```json
 {
   "mcpServers": {
     "memory-bank-mcp": {
-      "command": "npx",
-      "args": ["-y", "@diazstg/memory-bank-mcp", "--path", "/your/project", "--username", "your-github-username"]
+      "url": "http://localhost:3100/mcp",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
     }
   }
 }
 ```
+
+> **Note**: For the stdio/npm version, see [diaz3618/memory-bank-mcp](https://github.com/diaz3618/memory-bank-mcp)
+
+### Prerequisites
+
+1. Deploy the HTTP MCP server:
+   ```bash
+   docker compose --profile local-db up -d
+   ```
+
+2. Generate an API key:
+   ```bash
+   curl -X POST http://localhost/api/keys \
+     -H "Content-Type: application/json" \
+     -d '{"name": "claude-code", "expiresIn": "30d"}'
+   ```
+
+3. Add the API key to your Claude Code config above
 
 ## Usage
 

@@ -45,7 +45,7 @@ COPY --from=builder --chown=mbmcp:mbmcp /app/build /app/build
 COPY --from=builder --chown=mbmcp:mbmcp /app/package.json /app/package.json
 
 # Copy migrations for auto-migration on startup
-COPY --chown=mbmcp:mbmcp backup/migrations/ /app/migrations/
+COPY --chown=mbmcp:mbmcp supabase/migrations/ /app/migrations/
 
 USER mbmcp
 

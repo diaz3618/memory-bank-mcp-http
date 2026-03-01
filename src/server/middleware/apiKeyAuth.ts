@@ -8,7 +8,7 @@
  * Storage: SHA-256 hash only (never plaintext)
  */
 
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
 import type { DatabaseManager } from '../../utils/DatabaseManager.js';
 import type { RedisManager, CachedApiKey } from '../../utils/RedisManager.js';
@@ -167,11 +167,11 @@ export function generateApiKey(environment: 'live' | 'test' = 'live'): {
   hash: Buffer;
   prefix: string;
 } {
-  const randomBytes = require('crypto').randomBytes(32);
+  const bytes = randomBytes(32);
   // Base62 encoding
   const base62Chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
   let random = '';
-  for (const byte of randomBytes) {
+  for (const byte of bytes) {
     random += base62Chars[byte % 62];
   }
 

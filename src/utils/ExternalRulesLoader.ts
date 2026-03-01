@@ -214,7 +214,7 @@ export class ExternalRulesLoader extends EventEmitter {
     } catch (jsonError) {
       // If not valid JSON, try to parse as YAML
       try {
-        const rule = yaml.load(content) as McpRuleBase;
+        const rule = yaml.load(content, { schema: yaml.JSON_SCHEMA }) as McpRuleBase;
         
         // Basic validation
         if (!rule.mode || !rule.instructions || !Array.isArray(rule.instructions.general)) {

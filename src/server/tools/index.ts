@@ -599,17 +599,37 @@ export function setupToolHandlers(
           return handleSelectStore(memoryBankManager, storePath, storeId, normalizedAction, kind);
         }
 
-        // Unknown tool
-        default:
+        // Unknown tool — check if it was deprecated and suggest replacement
+        default: {
+          const deprecatedRedirectMap: Record<string, string> = {
+            get_current_mode: 'switch_mode (with action: "get" or call without mode param)',
+            process_umb_command: 'switch_mode (with umb: true and umbCommand param)',
+            complete_umb: 'switch_mode (with umb: true and umbCommand: "complete")',
+            list_backups: 'create_backup (with listOnly: true)',
+            graph_unlink_entities: 'graph_link_entities (with action: "unlink")',
+            graph_rebuild: 'graph_maintain (with operation: "rebuild")',
+            graph_compact: 'graph_maintain (with operation: "compact")',
+            graph_delete_observation: 'graph_delete_entity (with entity and observationId params)',
+            reset_sequential_thinking: 'sequential_thinking (with reset: true)',
+            register_store: 'select_store (with action: "register")',
+            unregister_store: 'select_store (with action: "unregister")',
+          };
+
+          const redirect = deprecatedRedirectMap[request.params.name];
+          const message = redirect
+            ? `Tool "${request.params.name}" was removed. Use ${redirect} instead.`
+            : `Unknown tool: ${request.params.name}`;
+
           return {
             content: [
               {
                 type: 'text',
-                text: `Unknown tool: ${request.params.name}`,
+                text: message,
               },
             ],
             isError: true,
           };
+        }
       }
     } catch (error) {
       console.error('Error handling tool call:', error);

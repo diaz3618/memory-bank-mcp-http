@@ -62,3 +62,6 @@ memory-bank
 tests
 .mcprules-*
 src/__tests__/server/temp-server-test-dir/
+
+# Snyk Security Extension - AI Rules (auto-generated)
+.github/instructions/snyk_rules.instructions.md

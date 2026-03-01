@@ -58,7 +58,7 @@ function displayBanner(): void {
 │                   HTTP + Postgres + Redis — Docker variant                   │
 │                                                                              │
 │                                 GitHub Repo:                                 │
-│                 https://github.com/diaz3618/memory-bank-mcp                  │
+│              https://github.com/diaz3618/memory-bank-mcp-http                │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────────────────────────────────────────╮
@@ -80,9 +80,10 @@ function displayBanner(): void {
  */
 function showHelp(): never {
   process.stderr.write(`
-Memory Bank MCP - MCP Server for managing Memory Bank
+Memory Bank MCP (HTTP) - MCP Server for managing Memory Bank
 
-Usage: memory-bank-mcp [options]  (or via Docker: docker compose up)
+Usage: docker compose up -d    (recommended)
+       node build/index.js [options]
 
 Options:
   --mode, -m <mode>    Set execution mode (code, ask, architect, etc.)
@@ -93,20 +94,19 @@ Options:
   --transport, -t <type> Transport mode: stdio (default) or http
   --help, -h           Display this help
 
-HTTP Transport Options (also configurable via environment variables):
+Environment variables (for HTTP mode):
   DATABASE_URL         PostgreSQL connection string (required for http mode)
   REDIS_URL            Redis connection string (optional, for caching/rate limiting)
   MCP_PORT             HTTP listen port (default: 3100)
-  MCP_HOST             HTTP bind address (default: 127.0.0.1 local, 0.0.0.0 in Docker)
+  MCP_HOST             HTTP bind address (default: 0.0.0.0 in Docker)
   DB_PROVIDER          Database provider: postgres or supabase (default: postgres)
-  
+
 Examples:
-  memory-bank-mcp                          # stdio mode (local)
-  memory-bank-mcp --transport http          # HTTP mode (requires DATABASE_URL)
-  memory-bank-mcp --mode code --debug       # stdio with debug logging
   docker compose up -d                      # full HTTP+Postgres+Redis stack
-  
-For more information, visit: https://github.com/diaz3618/memory-bank-mcp
+  node build/index.js --transport http      # HTTP mode (requires DATABASE_URL)
+  node build/index.js --mode code --debug   # stdio with debug logging
+
+For more information, visit: https://github.com/diaz3618/memory-bank-mcp-http
 `);
   process?.exit?.(0);
   // This is to satisfy TypeScript that the function never returns
